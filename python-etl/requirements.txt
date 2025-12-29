@@ -1,0 +1,15 @@
+psycopg2-binary
+minio
+pandas
+pyarrow
+sqlalchemy
+flask
+python-multipart
+python-docx
+PyMuPDF
+pillow
+pytesseract
+chardet
+pdfplumber
+python-docx
+pypdf
