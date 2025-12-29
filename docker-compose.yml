@@ -1,0 +1,139 @@
+# version: "3.9"
+services:
+  postgres:
+    image: postgres:17
+    container_name: postgres_lakehouse
+    environment:
+      POSTGRES_USER: lakehouse_user
+      POSTGRES_PASSWORD: lakehouse_pass
+      POSTGRES_DB: lakehouse_db
+    ports:
+      - "5555:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+    networks:
+      - lakehouse_network
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio_datalake
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO Console
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    networks:
+      - lakehouse_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  mc:
+    image: minio/mc:latest
+    container_name: minio_client
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      mc alias set myminio http://minio:9000 minioadmin minioadmin123;
+      mc mb myminio/lakehouse-data --ignore-existing;
+      mc mb myminio/raw-data --ignore-existing;
+      mc mb myminio/processed-data --ignore-existing;
+      echo 'MinIO buckets created successfully';
+      tail -f /dev/null;
+      "
+    networks:
+      - lakehouse_network
+
+  python-etl:
+    build:
+      context: ./python-etl
+      dockerfile: Dockerfile
+    container_name: python_etl
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: lakehouse_db
+      POSTGRES_USER: lakehouse_user
+      POSTGRES_PASSWORD: lakehouse_pass
+
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: lakehouse-data
+
+      UPLOAD_PORT: 5000
+    volumes:
+      - ./python-etl:/app
+    ports:
+      - "5000:5000"
+    command: ["python", "-u", "uploader_app.py"]
+    networks:
+      - lakehouse_network
+
+  airflow:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    image: minio-lakehouse-airflow:latest
+    container_name: airflow_lakehouse
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      PYTHONPATH: /opt/python-etl
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: ZIKgh6_b8bdt0HxpSQAwgOh4jdlO2qWEjFgPr8K4eWs=
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__RBAC: "True"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: lakehouse-data
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: lakehouse_db
+      POSTGRES_USER: lakehouse_user
+      POSTGRES_PASSWORD: lakehouse_pass
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./python-etl:/opt/python-etl
+      - ./docker/airflow/airflow_logs:/opt/airflow/logs
+      - ./docker/airflow/plugins:/opt/airflow/plugins
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./sample:/opt/airflow/sample
+    ports:
+      - "8080:8080"
+    networks:
+      - lakehouse_network
+    command: >
+      bash -c "
+      airflow db migrate &&
+      airflow users create --username admin --firstname Nimish --lastname Mittal --role Admin --email admin@example.com --password admin || true &&
+      airflow webserver --port 8080 &
+      airflow scheduler
+      "
+
+
+volumes:
+  postgres_data:
+  minio_data:
+
+networks:
+  lakehouse_network:
+    driver: bridge
