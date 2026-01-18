@@ -1,6 +1,7 @@
 // src/components/FileUpload.jsx
 import React, { useState, useRef } from 'react';
 import { Upload, File, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { toast } from 'react-toastify';
 import { dashboardAPI } from '../services/api';
 
 const FileUpload = ({ onUploadSuccess }) => {
@@ -49,25 +50,18 @@ const FileUpload = ({ onUploadSuccess }) => {
     if (!selectedFile) return;
 
     setUploading(true);
-    setStatus({ type: null, message: '' });
 
     const formData = new FormData();
     formData.append('file', selectedFile);
 
     try {
       await dashboardAPI.uploadFile(formData);
-      setStatus({ type: 'success', message: 'File uploaded successfully!' });
-      setTimeout(() => {
-        setSelectedFile(null);
-        setStatus({ type: null, message: '' });
-      }, 3000);
+      toast.success('Asset ingested successfully! Pipeline triggered.');
+      setSelectedFile(null);
       onUploadSuccess?.();
     } catch (err) {
       console.error(err);
-      setStatus({
-        type: 'error',
-        message: err.response?.data?.detail || 'Upload failed. Please try again.'
-      });
+      toast.error(err.response?.data?.detail || 'Ingestion failed. System check required.');
     } finally {
       setUploading(false);
     }
@@ -124,13 +118,7 @@ const FileUpload = ({ onUploadSuccess }) => {
               )}
             </div>
 
-            {status.message && (
-              <div className={`flex items-center p-4 rounded-xl mb-6 ${status.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                }`}>
-                {status.type === 'success' ? <CheckCircle2 className="w-5 h-5 mr-3" /> : <AlertCircle className="w-5 h-5 mr-3" />}
-                <p className="text-sm font-medium">{status.message}</p>
-              </div>
-            )}
+            {/* Removed internal status display in favor of toasts */}
 
             <button
               onClick={uploadFile}
