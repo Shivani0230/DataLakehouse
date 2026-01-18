@@ -28,6 +28,11 @@ export const dashboardAPI = {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
   getHealth: () => api.get('/health'),
+
+  // User Management
+  getUsers: () => api.get('/admin/users'),
+  addUser: (userData) => api.post('/admin/users', userData),
+  deleteUser: (userId) => api.delete(`/admin/users/${userId}`),
 };
 
 export default api;
